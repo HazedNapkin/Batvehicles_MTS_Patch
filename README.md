@@ -22,11 +22,11 @@ The line drops if the anchor block is broken, the target dies or despawns, or th
 | Item | Aims | Sticks into |
 |---|---|---|
 | Grapple Winch (Turret), `batmobile_grapple` | Turns to the crosshair | Blocks, mobs, vehicles |
-| Grapple Winch (Fixed), `batmobile_grapple_fixed` (Batmobile default) | Straight ahead | Blocks, mobs, vehicles |
-| Harpoon (Fixed), `batmobile_grapple_fixed_harpoon` | Straight ahead | Mobs and vehicles only |
+| Grapple Winch (Fixed), `batmobile_grapple_fixed` (Batmobile default) | Fires at the crosshair, body doesn't turn | Blocks, mobs, vehicles |
+| Harpoon (Fixed), `batmobile_grapple_fixed_harpoon` | Fires at the crosshair, body doesn't turn | Mobs and vehicles only |
 | Harpoon (Turret), `batmobile_grapple_harpoon` | Turns to the crosshair | Mobs and vehicles only |
 
-Harpoons bounce off blocks and placed parts, and the hook comes back. Fixed launchers fire along the part slot's +Z, so the slot `rot` sets where they point.
+Harpoons bounce off blocks and placed parts, and the hook comes back. Fixed launchers still fire at the crosshair; only the launcher body stays still while the cable swings out from the barrel tip. With no driver, every launcher fires along the part slot's +Z.
 The variants are `definitions` in one part JSON. Each sets the constants `grapple_fixed` and/or `grapple_entities_only`, and they share one texture through `textureNames`. Icon badges: orange means fixed, red means harpoon.
 
 ## Vehicle Phone
@@ -55,7 +55,7 @@ Only aircraft with the `phone_summon_aircraft` definition constant can be regist
 1. You can't call it while you're indoors (any block over your head).
 2. It teleports in about `phone_summon_distance` blocks in front of you, 10 blocks above everything around you. If it's already loaded and within that range, it climbs and flies over from where it is instead.
 3. It starts its engines, switches on `stay_on` and flies to just above you, following you if you move. Then it switches to `hover`.
-4. It searches within 20 blocks of you for a spot where it can come straight down. The ground must be solid and fairly flat, and the whole column above it must be clear. If it finds one, it flies over, lowers the gear (`gear_setpoint` 0), descends, lands, sets the parking brake and switches `stay_on` off.
+4. It searches within 20 blocks of you for a spot where it can come straight down. The ground must be solid and fairly flat, and the whole column above it must be clear. If it finds one, it flies over, lowers the gear (`gear_setpoint` 0) and descends. Once the wheels touch, it presses down for half a second so they all settle, then sets the parking brake and switches `hover` and `stay_on` off so it rests on its wheels.
 5. If there's nowhere to land, it stays in `hover` above you with `stay_on` left on.
 
 During the flight the mod moves the aircraft directly instead of using its flight physics. The movement still goes through MTS collisions, and the server and clients run the same movement.

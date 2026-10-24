@@ -52,6 +52,10 @@ final class SummonJob {
     private static final double CRUISE_CLEARANCE = 10;
     private static final double FLY_SPEED = 1.0;
     private static final double DESCEND_SPEED = 0.2;
+    /**How far below the ground the descent aims, so it reaches the ground at a steady rate.**/
+    private static final double LANDING_OVERSHOOT = 1.0;
+    /**Ticks to keep pressing down after first touching the ground.**/
+    private static final int SETTLE_TICKS = 10;
 
     private enum Phase {
         LOCATE,
@@ -114,6 +118,7 @@ final class SummonJob {
     private int landingIndex;
     private Point3D landingSpot;
     private double lastDescentHeight = Double.MAX_VALUE;
+    private int settleTicks;
 
     SummonJob(AWrapperWorld world, IWrapperPlayer player, UUID vehicleID, String name) {
         this.world = world;
@@ -634,7 +639,10 @@ final class SummonJob {
             case FLY_TO_LANDING: {
                 if (horizontalDistance(position, landingSpot) < 0.75) {
                     set(vehicle.getOrCreateVariable("gear_setpoint"), 0);
-                    SummonFlight.flyTo(vehicle, new Point3D(landingSpot.x, landingSpot.y + shape.groundOffset(), landingSpot.z), DESCEND_SPEED);
+                    //Aim a block below where the wheels meet the ground.  The flight eases off as it nears
+                    //its target, so aiming at the ground itself would crawl the last bit and stop short.
+                    //The ground stops us; we finish when the wheels touch.
+                    SummonFlight.flyTo(vehicle, new Point3D(landingSpot.x, landingSpot.y + shape.groundOffset() - LANDING_OVERSHOOT, landingSpot.z), DESCEND_SPEED);
                     setPhase(Phase.DESCEND);
                 }
                 break;
@@ -649,10 +657,14 @@ final class SummonJob {
                     stalled = phaseTicks > 40 && lastDescentHeight - heightLeft < 0.1;
                     lastDescentHeight = heightLeft;
                 }
-                if (heightLeft < 0.3 || wheelsDown || stalled) {
+                //Keep pressing down for a moment after first contact, so every wheel settles onto
+                //the ground instead of the first one to touch holding the rest up.
+                if ((wheelsDown || stalled || heightLeft < -0.5) && settleTicks == 0) {
+                    settleTicks = SETTLE_TICKS;
+                }
+                if (settleTicks > 0 && --settleTicks == 0) {
                     SummonFlight.stop(vehicle);
                     park();
-                    set(vehicle.getOrCreateVariable("stay_on"), 0);
                     message(player, name + " has landed.");
                     return true;
                 }

@@ -39,7 +39,7 @@
     {
       "subName": "_fixed",
       "name": "Batmobile Grapple Winch (Fixed)",
-      "description": "\n§7Fixed: fires straight ahead. Hooks blocks, mobs and vehicles.",
+      "description": "\n§7Fixed: doesn't turn, but fires where you look. Hooks blocks, mobs and vehicles.",
       "textureNames": [
         "batmobile_grapple"
       ],
@@ -53,7 +53,7 @@
     {
       "subName": "_fixed_harpoon",
       "name": "Batmobile Harpoon (Fixed)",
-      "description": "\n§7Fixed: fires straight ahead. Only hooks mobs and vehicles; bounces off blocks.",
+      "description": "\n§7Fixed: doesn't turn, but fires where you look. Only hooks mobs and vehicles; bounces off blocks.",
       "textureNames": [
         "batmobile_grapple"
       ],

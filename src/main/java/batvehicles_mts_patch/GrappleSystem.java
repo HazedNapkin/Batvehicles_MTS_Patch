@@ -69,7 +69,7 @@ public final class GrappleSystem {
     public static final String VAR_LINE_YAW = "grapple_line_yaw";
     public static final String VAR_LINE_PITCH = "grapple_line_pitch";
 
-    /**Definition constant: the launcher doesn't turn, and fires straight along its +Z axis.**/
+    /**Definition constant: the launcher body doesn't turn to follow the crosshair.  It still fires where the driver aims.**/
     public static final String CONSTANT_FIXED = "grapple_fixed";
     /**Definition constant: the hook only sticks into mobs and vehicles.  It bounces off blocks.**/
     public static final String CONSTANT_ENTITIES_ONLY = "grapple_entities_only";
@@ -226,13 +226,12 @@ public final class GrappleSystem {
 
     /**
      * Fires the hook from the launcher at whatever is under the driver's crosshair.
-     * Fixed launchers ignore the crosshair and fire straight ahead.
      */
     private static void launch(EntityVehicleF_Physics vehicle, APart part) {
         Point3D start = part.position.copy();
         Point3D target;
         IWrapperEntity controller = part.getController();
-        if (controller != null && !isFixed(part)) {
+        if (controller != null) {
             //Find what the crosshair is on and aim the hook from the launcher at that point.
             //This way the hook goes where the driver is looking, even though the launcher is offset from their eyes.
             Point3D eye = controller.getEyePosition().copy();
