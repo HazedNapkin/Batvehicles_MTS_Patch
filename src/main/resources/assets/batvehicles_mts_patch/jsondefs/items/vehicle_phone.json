@@ -1,0 +1,18 @@
+{
+  "item": {
+    "type": "none"
+  },
+  "general": {
+    "name": "Vehicle Phone",
+    "description": "§7Shift-right-click a vehicle to register it.\n§7Right-click to call a registered vehicle to you.",
+    "stackSize": 1,
+    "materialLists": [
+      [
+        "minecraft:iron_ingot:2",
+        "minecraft:redstone:4",
+        "minecraft:glass_pane:1",
+        "minecraft:ender_pearl:1"
+      ]
+    ]
+  }
+}

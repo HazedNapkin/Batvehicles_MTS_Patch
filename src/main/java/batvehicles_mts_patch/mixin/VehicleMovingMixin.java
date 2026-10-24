@@ -6,6 +6,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import batvehicles_mts_patch.GrappleSystem;
+import batvehicles_mts_patch.phone.SummonManager;
 import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
 
 /**
@@ -24,6 +25,8 @@ public abstract class VehicleMovingMixin {
         Object self = this;
         if (self instanceof EntityVehicleF_Physics) {
             GrappleSystem.updateVehicle((EntityVehicleF_Physics) self);
+            //Phone summons go last, so a summoned aircraft's flight overrides anything else this tick.
+            SummonManager.onVehicleTick((EntityVehicleF_Physics) self);
         }
     }
 }
