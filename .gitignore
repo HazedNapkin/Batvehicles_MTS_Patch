@@ -1,0 +1,41 @@
+# Gradle
+.gradle/
+build/
+out/
+bin/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ForgeGradle / Minecraft run directories
+run/
+runs/
+logs/
+crash-reports/
+mts_dev/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.classpath
+.project
+.settings/
+.metadata/
+
+# VS Code
+.vscode/
+
+# Java
+*.class
+*.log
+hs_err_pid*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local Claude Code settings
+.claude/settings.local.json
