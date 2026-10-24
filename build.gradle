@@ -1,0 +1,47 @@
+buildscript {
+    repositories {
+        maven { url = "https://maven.minecraftforge.net" }
+        maven { url = "https://maven.parchmentmc.org" }
+        mavenCentral()
+    }
+    dependencies {
+        classpath group: "net.minecraftforge.gradle", name: "ForgeGradle", version: "5.1.+", changing: true
+        classpath group: "org.parchmentmc", name: "librarian", version: "1.+"
+    }
+}
+
+apply plugin: "net.minecraftforge.gradle"
+apply plugin: "org.parchmentmc.librarian.forgegradle"
+
+version = "${project.mc_version}-${project.mod_version}"
+group = project.mod_group
+archivesBaseName = project.archive_name
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    mappings channel: project.mappings_channel, version: "${project.mappings_version}-${project.mc_version}"
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${project.mc_version}-${project.forge_version}"
+
+    //MTS core classes.  These are identical across every MTS Minecraft version, so we only
+    //compile against them.  The real classes come from the installed Immersive Vehicles jar.
+    compileOnly files("libs/mts-core.jar")
+}
+
+jar {
+    manifest {
+        attributes([
+                "MixinConfigs"          : project.mixin_config,
+                "Implementation-Version": project.mod_version
+        ])
+    }
+}
+
+jar.finalizedBy("reobfJar")
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+}

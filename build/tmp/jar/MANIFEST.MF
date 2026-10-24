@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+MixinConfigs: batvehicles_mts_patch.mixins.json
+Implementation-Version: 1.0.0
+

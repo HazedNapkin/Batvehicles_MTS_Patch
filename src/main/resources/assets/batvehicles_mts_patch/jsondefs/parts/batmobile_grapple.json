@@ -1,0 +1,100 @@
+{
+  "generic": {
+    "type": "generic_grapple",
+    "width": 0.375,
+    "height": 0.25,
+    "mass": 40
+  },
+  "customKeybinds": [
+    {
+      "name": "Grapple (Fire/Release)",
+      "keyIndex": 2,
+      "action": {
+        "action": "toggle",
+        "variable": "grapple_fire"
+      }
+    },
+    {
+      "name": "Winch In (Hold)",
+      "keyIndex": 3,
+      "action": {
+        "action": "button",
+        "variable": "grapple_reel",
+        "value": 1.0
+      }
+    }
+  ],
+  "definitions": [
+    {
+      "subName": "",
+      "name": "Batmobile Grapple Winch",
+      "extraMaterialLists": [
+        []
+      ]
+    }
+  ],
+  "rendering": {
+    "animatedObjects": [
+      {
+        "objectName": "#grapple_cable",
+        "animations": [
+          {
+            "animationType": "visibility",
+            "variable": "grapple_attached",
+            "clampMin": 1.0,
+            "clampMax": 1.0
+          },
+          {
+            "animationType": "rotation",
+            "variable": "grapple_yaw",
+            "axis": [0.0,1.0,0.0]
+          },
+          {
+            "animationType": "rotation",
+            "variable": "grapple_pitch",
+            "axis": [1.0,0.0,0.0]
+          },
+          {
+            "animationType": "scaling",
+            "variable": "grapple_length",
+            "axis": [0.0,0.0,1.0]
+          }
+        ]
+      },
+      {
+        "objectName": "#grapple_hook",
+        "animations": [
+          {
+            "animationType": "rotation",
+            "variable": "grapple_yaw",
+            "axis": [0.0,1.0,0.0]
+          },
+          {
+            "animationType": "rotation",
+            "variable": "grapple_pitch",
+            "axis": [1.0,0.0,0.0]
+          },
+          {
+            "animationType": "translation",
+            "variable": "grapple_length",
+            "axis": [0.0,0.0,1.0]
+          }
+        ]
+      }
+    ],
+    "modelType": "obj"
+  },
+  "general": {
+    "name": "Batmobile Grapple Winch",
+    "description": "§7Fires a grappling line where you're looking. Hold the winch key to reel yourself in, or keep driving on a taut line to swing round corners. Press fire again to release.",
+    "health": 40,
+    "materialLists": [
+      [
+        "minecraft:iron_ingot:4",
+        "minecraft:string:16",
+        "minecraft:tripwire_hook:1",
+        "minecraft:piston:1"
+      ]
+    ]
+  }
+}
