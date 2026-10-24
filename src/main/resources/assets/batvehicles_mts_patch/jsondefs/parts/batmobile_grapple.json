@@ -27,40 +27,205 @@
   "definitions": [
     {
       "subName": "",
-      "name": "Batmobile Grapple Winch",
+      "name": "Batmobile Grapple Winch (Turret)",
+      "description": "\n§7Turret: turns to aim where you look. Hooks blocks, mobs and vehicles.",
+      "textureNames": [
+        "batmobile_grapple"
+      ],
       "extraMaterialLists": [
         []
+      ]
+    },
+    {
+      "subName": "_fixed",
+      "name": "Batmobile Grapple Winch (Fixed)",
+      "description": "\n§7Fixed: fires straight ahead. Hooks blocks, mobs and vehicles.",
+      "textureNames": [
+        "batmobile_grapple"
+      ],
+      "extraMaterialLists": [
+        []
+      ],
+      "constants": [
+        "grapple_fixed"
+      ]
+    },
+    {
+      "subName": "_fixed_harpoon",
+      "name": "Batmobile Harpoon (Fixed)",
+      "description": "\n§7Fixed: fires straight ahead. Only hooks mobs and vehicles; bounces off blocks.",
+      "textureNames": [
+        "batmobile_grapple"
+      ],
+      "extraMaterialLists": [
+        []
+      ],
+      "constants": [
+        "grapple_fixed",
+        "grapple_entities_only"
+      ]
+    },
+    {
+      "subName": "_harpoon",
+      "name": "Batmobile Harpoon (Turret)",
+      "description": "\n§7Turret: turns to aim where you look. Only hooks mobs and vehicles; bounces off blocks.",
+      "textureNames": [
+        "batmobile_grapple"
+      ],
+      "extraMaterialLists": [
+        []
+      ],
+      "constants": [
+        "grapple_entities_only"
       ]
     }
   ],
   "rendering": {
     "animatedObjects": [
       {
+        "objectName": "launcher_housing",
+        "animations": [
+          {
+            "animationType": "rotation",
+            "variable": "grapple_body_yaw",
+            "centerPoint": [
+              0.0,
+              -0.125,
+              -0.5
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ]
+          },
+          {
+            "animationType": "rotation",
+            "variable": "grapple_body_pitch",
+            "centerPoint": [
+              0.0,
+              -0.125,
+              -0.5
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          }
+        ]
+      },
+      {
+        "objectName": "launcher_barrel",
+        "animations": [
+          {
+            "animationType": "rotation",
+            "variable": "grapple_body_yaw",
+            "centerPoint": [
+              0.0,
+              -0.125,
+              -0.5
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ]
+          },
+          {
+            "animationType": "rotation",
+            "variable": "grapple_body_pitch",
+            "centerPoint": [
+              0.0,
+              -0.125,
+              -0.5
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          }
+        ]
+      },
+      {
         "objectName": "#grapple_cable",
         "animations": [
           {
             "animationType": "visibility",
-            "variable": "grapple_attached",
+            "variable": "grapple_line_out",
             "clampMin": 1.0,
             "clampMax": 1.0
           },
           {
             "animationType": "rotation",
-            "variable": "grapple_yaw",
-            "centerPoint": [0.0,0.0,0.0],
-            "axis": [0.0,1.0,0.0]
+            "variable": "grapple_body_yaw",
+            "centerPoint": [
+              0.0,
+              -0.125,
+              -0.5
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ]
           },
           {
             "animationType": "rotation",
-            "variable": "grapple_pitch",
-            "centerPoint": [0.0,0.0,0.0],
-            "axis": [1.0,0.0,0.0]
+            "variable": "grapple_body_pitch",
+            "centerPoint": [
+              0.0,
+              -0.125,
+              -0.5
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "animationType": "rotation",
+            "variable": "grapple_line_yaw",
+            "centerPoint": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ]
+          },
+          {
+            "animationType": "rotation",
+            "variable": "grapple_line_pitch",
+            "centerPoint": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ]
           },
           {
             "animationType": "scaling",
             "variable": "grapple_length",
-            "centerPoint": [0.0,0.0,0.0],
-            "axis": [0.0,0.0,1.0]
+            "centerPoint": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ]
           }
         ]
       },
@@ -69,20 +234,68 @@
         "animations": [
           {
             "animationType": "rotation",
-            "variable": "grapple_yaw",
-            "centerPoint": [0.0,0.0,0.0],
-            "axis": [0.0,1.0,0.0]
+            "variable": "grapple_body_yaw",
+            "centerPoint": [
+              0.0,
+              -0.125,
+              -0.5
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ]
           },
           {
             "animationType": "rotation",
-            "variable": "grapple_pitch",
-            "centerPoint": [0.0,0.0,0.0],
-            "axis": [1.0,0.0,0.0]
+            "variable": "grapple_body_pitch",
+            "centerPoint": [
+              0.0,
+              -0.125,
+              -0.5
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "animationType": "rotation",
+            "variable": "grapple_line_yaw",
+            "centerPoint": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ]
+          },
+          {
+            "animationType": "rotation",
+            "variable": "grapple_line_pitch",
+            "centerPoint": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ]
           },
           {
             "animationType": "translation",
             "variable": "grapple_length",
-            "axis": [0.0,0.0,1.0]
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ]
           }
         ]
       }
@@ -91,7 +304,7 @@
   },
   "general": {
     "name": "Batmobile Grapple Winch",
-    "description": "§7Fires a grappling line where you're looking. Hold the winch key to reel yourself in, or keep driving on a taut line to swing round corners. Press fire again to release.",
+    "description": "§7Fires a grappling hook up to 100 blocks. Hold the winch key to reel in, or keep driving on a taut line to swing round corners. Press fire again to release.",
     "health": 40,
     "materialLists": [
       [
