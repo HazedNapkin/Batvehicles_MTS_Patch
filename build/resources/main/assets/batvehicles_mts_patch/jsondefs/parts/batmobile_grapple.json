@@ -8,7 +8,7 @@
   "customKeybinds": [
     {
       "name": "Grapple (Fire/Release)",
-      "keyIndex": 2,
+      "keyIndex": 3,
       "action": {
         "action": "toggle",
         "variable": "grapple_fire"
@@ -16,7 +16,7 @@
     },
     {
       "name": "Winch In (Hold)",
-      "keyIndex": 3,
+      "keyIndex": 4,
       "action": {
         "action": "button",
         "variable": "grapple_reel",
@@ -47,16 +47,19 @@
           {
             "animationType": "rotation",
             "variable": "grapple_yaw",
+            "centerPoint": [0.0,0.0,0.0],
             "axis": [0.0,1.0,0.0]
           },
           {
             "animationType": "rotation",
             "variable": "grapple_pitch",
+            "centerPoint": [0.0,0.0,0.0],
             "axis": [1.0,0.0,0.0]
           },
           {
             "animationType": "scaling",
             "variable": "grapple_length",
+            "centerPoint": [0.0,0.0,0.0],
             "axis": [0.0,0.0,1.0]
           }
         ]
@@ -67,11 +70,13 @@
           {
             "animationType": "rotation",
             "variable": "grapple_yaw",
+            "centerPoint": [0.0,0.0,0.0],
             "axis": [0.0,1.0,0.0]
           },
           {
             "animationType": "rotation",
             "variable": "grapple_pitch",
+            "centerPoint": [0.0,0.0,0.0],
             "axis": [1.0,0.0,0.0]
           },
           {
