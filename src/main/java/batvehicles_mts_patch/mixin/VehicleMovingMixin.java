@@ -3,10 +3,13 @@ package batvehicles_mts_patch.mixin;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import batvehicles_mts_patch.GrappleSystem;
 import batvehicles_mts_patch.phone.SummonManager;
+import minecrafttransportsimulator.baseclasses.Point3D;
+import minecrafttransportsimulator.baseclasses.VehicleGroundDeviceCollection;
 import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
 
 /**
@@ -27,6 +30,18 @@ public abstract class VehicleMovingMixin {
             GrappleSystem.updateVehicle((EntityVehicleF_Physics) self);
             //Phone summons go last, so a summoned aircraft's flight overrides anything else this tick.
             SummonManager.onVehicleTick((EntityVehicleF_Physics) self);
+        }
+    }
+
+    /**
+     * Skips MTS's pitch levelling while a grapple line is holding one end of the car up.
+     * Otherwise MTS sees airborne wheels and tips the lifted end straight back down every tick.
+     */
+    @Redirect(method = "moveVehicle", at = @At(value = "INVOKE", target = "Lminecrafttransportsimulator/baseclasses/VehicleGroundDeviceCollection;performPitchCorrection(Lminecrafttransportsimulator/baseclasses/Point3D;)V"), remap = false)
+    private void batvehicles_mts_patch$holdGrapplePitch(VehicleGroundDeviceCollection groundDevices, Point3D groundMotion) {
+        Object self = this;
+        if (!(self instanceof EntityVehicleF_Physics) || !GrappleSystem.isPitchHeld((EntityVehicleF_Physics) self)) {
+            groundDevices.performPitchCorrection(groundMotion);
         }
     }
 }

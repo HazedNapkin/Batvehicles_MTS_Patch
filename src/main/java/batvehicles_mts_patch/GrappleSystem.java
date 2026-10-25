@@ -17,6 +17,7 @@ import minecrafttransportsimulator.entities.components.AEntityB_Existing;
 import minecrafttransportsimulator.entities.components.AEntityF_Multipart;
 import minecrafttransportsimulator.entities.instances.APart;
 import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
+import minecrafttransportsimulator.entities.instances.PartGroundDevice;
 import minecrafttransportsimulator.jsondefs.JSONCollisionGroup.CollisionType;
 import minecrafttransportsimulator.mcinterface.IWrapperEntity;
 
@@ -47,7 +48,8 @@ import minecrafttransportsimulator.mcinterface.IWrapperEntity;
  * Definition constants pick the variant: {@link #CONSTANT_FIXED} and {@link #CONSTANT_ENTITIES_ONLY}.
  * The line only ever pulls.  When it's taut, whatever is on each end can't move further apart,
  * gets pulled back to the line length, and the car's heading is steered along any swing so the
- * tyres don't fight the turn.
+ * tyres don't fight the turn.  When the line lifts the car, it pitches up on its far wheels, or
+ * hangs nose-first below the hook once clear of the ground.
  */
 public final class GrappleSystem {
     public static final String PART_TYPE = "generic_grapple";
@@ -99,6 +101,10 @@ public final class GrappleSystem {
     private static final double YAW_ASSIST = 0.35;
     /**Cap on the yaw added by the line, in degrees per tick.**/
     private static final double MAX_YAW_ASSIST = 6;
+    /**Cap on the pitch added by the line, in degrees per tick.**/
+    private static final double MAX_TILT_RATE = 4;
+    /**Fraction of the hanging angle error corrected each tick while the car hangs free of the ground.**/
+    private static final double HANG_ASSIST = 0.15;
     /**How often the server checks the anchor block still exists, in ticks.**/
     private static final int ANCHOR_CHECK_INTERVAL = 10;
 
@@ -108,6 +114,9 @@ public final class GrappleSystem {
     private static final Map<APart, Point3D[]> renderAnchors = new WeakHashMap<>();
     /**Cable variables we've already given a render function to.  Weak so removed parts don't leak.**/
     private static final Set<ComputedVariable> renderVariables = Collections.newSetFromMap(new WeakHashMap<>());
+    /**Vehicles whose pitch the line is holding this tick.  MTS's own pitch correction is skipped for
+     * these, as it would drop the lifted end straight back onto its wheels.**/
+    private static final Set<EntityVehicleF_Physics> pitchHeldVehicles = Collections.newSetFromMap(new WeakHashMap<>());
 
     private GrappleSystem() {
     }
@@ -120,6 +129,7 @@ public final class GrappleSystem {
      * Called on both client and server, once per vehicle tick, just before MTS moves the vehicle.
      */
     public static void updateVehicle(EntityVehicleF_Physics vehicle) {
+        pitchHeldVehicles.remove(vehicle);
         for (APart part : vehicle.allParts) {
             if (part.isValid && isGrapple(part)) {
                 updateGrapple(vehicle, part);
@@ -403,6 +413,7 @@ public final class GrappleSystem {
             return;
         }
         Point3D lineNormal = toAnchor.scale(1D / distance);
+        double motionYBefore = vehicle.motion.y;
 
         //Rigid line: remove any velocity taking us further from the anchor.
         double radialSpeed = vehicle.motion.dotProduct(lineNormal, false);
@@ -432,6 +443,109 @@ public final class GrappleSystem {
                 vehicle.rotation.angles.y += yawAdded;
             }
         }
+
+        applyLineTilt(vehicle, part, lineNormal, (vehicle.motion.y - motionYBefore) * vehicle.speedFactor);
+    }
+
+    /**
+     * Pitches the car when the line lifts one end of it.  The line pulls on the launcher while
+     * gravity pulls on the middle of the car, so the launcher end rises first.
+     * <ul>
+     * <li>With wheels grounded on the far side of the car, the car tips up about them.  The lift the
+     * line just added is spent on the tilt instead of raising the whole car level.</li>
+     * <li>Hanging free, the car swings until its middle hangs straight below the launcher.</li>
+     * </ul>
+     * Either way the car never tilts past where it would hang from the line, so it can't flip over.
+     *
+     * @param lift how far the line raised the car this tick, in blocks.
+     */
+    private static void applyLineTilt(EntityVehicleF_Physics vehicle, APart part, Point3D lineNormal, double lift) {
+        if (lineNormal.y <= 0) {
+            //Line runs level or downhill, so it can't lift either end.  Leave pitch to MTS.
+            return;
+        }
+
+        //Work in the car's own frame, where pitch is a turn about X, so only Y and Z matter.
+        //MTS has no centre of mass, so take the middle of the wheels.  Without wheels, use the origin.
+        Point3D launcher = toLocal(vehicle, part.position);
+        Point3D center = new Point3D();
+        int wheels = 0;
+        for (APart other : vehicle.allParts) {
+            if (other instanceof PartGroundDevice && !other.placementDefinition.isSpare) {
+                center.add(toLocal(vehicle, other.position));
+                ++wheels;
+            }
+        }
+        if (wheels > 0) {
+            center.scale(1D / wheels);
+        }
+        Point3D arm = launcher.copy().subtract(center);
+        if (Math.hypot(arm.y, arm.z) < 0.1) {
+            //Launcher sits on the middle of the car.  The line can't turn it.
+            return;
+        }
+
+        //Tilt that would hang the car's middle straight below the launcher.  Positive is nose down.
+        double hangError = getTiltAngle(arm) - getTiltAngle(lineNormal.copy().reOrigin(vehicle.orientation));
+        hangError = ((hangError % 360) + 540) % 360 - 180;
+
+        //Pivot on the grounded wheels at the other end of the car from the launcher.
+        Point3D pivot = new Point3D();
+        int pivotWheels = 0;
+        for (PartGroundDevice groundDevice : vehicle.groundDeviceCollective.groundedGroundDevices) {
+            Point3D wheel = toLocal(vehicle, groundDevice.position);
+            if ((wheel.z - center.z) * arm.z < 0) {
+                pivot.add(wheel);
+                ++pivotWheels;
+            }
+        }
+
+        double tilt;
+        if (pivotWheels > 0) {
+            pivot.scale(1D / pivotWheels);
+            //How far the launcher rises in the world for each degree of tilt about the pivot.
+            Point3D pivotArm = launcher.copy().subtract(pivot);
+            double risePerDegree = new Point3D(0, -pivotArm.z, pivotArm.y).rotate(vehicle.orientation).y * Math.PI / 180D;
+            tilt = Math.abs(risePerDegree) > 1.0E-3 ? lift / risePerDegree : 0;
+            if (tilt * hangError <= 0) {
+                //The line isn't lifting, or we're already hanging from it.  Hold the angle we're at.
+                tilt = 0;
+            } else {
+                tilt = Math.signum(tilt) * Math.min(Math.abs(tilt), Math.min(Math.abs(hangError), MAX_TILT_RATE));
+                vehicle.motion.y -= tilt * risePerDegree / vehicle.speedFactor;
+            }
+        } else if (vehicle.groundDeviceCollective.groundedGroundDevices.isEmpty()) {
+            //Hanging free.  Swing about the launcher so the line holds it still.
+            pivot.set(launcher);
+            tilt = Math.max(-MAX_TILT_RATE, Math.min(MAX_TILT_RATE, hangError * HANG_ASSIST));
+        } else {
+            //Only the launcher end is grounded.  The line is dragging that end, so leave pitch to MTS.
+            return;
+        }
+
+        if (tilt != 0) {
+            vehicle.rotation.angles.x += tilt;
+            //MTS turns the car about its origin, so shift the origin to keep the pivot where it is.
+            Point3D pivotShift = pivot.copy().subtract(pivot.copy().rotate(new RotationMatrix().setToAxisAngle(1, 0, 0, tilt)));
+            vehicle.motion.addScaled(pivotShift.rotate(vehicle.orientation), 1D / vehicle.speedFactor);
+        }
+        pitchHeldVehicles.add(vehicle);
+    }
+
+    /**
+     * Returns true if the line is holding this vehicle's pitch this tick, so MTS shouldn't level it.
+     */
+    public static boolean isPitchHeld(EntityVehicleF_Physics vehicle) {
+        return pitchHeldVehicles.contains(vehicle);
+    }
+
+    private static Point3D toLocal(EntityVehicleF_Physics vehicle, Point3D worldPosition) {
+        return worldPosition.copy().subtract(vehicle.position).reOrigin(vehicle.orientation);
+    }
+
+    /**Pitch of a local vector above the +Z axis, in degrees.**/
+    private static double getTiltAngle(Point3D local) {
+        return Math.toDegrees(Math.atan2(local.y, local.z));
     }
 
     private static boolean isFixed(APart part) {

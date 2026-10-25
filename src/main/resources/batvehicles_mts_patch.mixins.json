@@ -6,7 +6,8 @@
   "mixins": [
     "VehicleMovingMixin",
     "ItemItemMixin",
-    "PacketRegistryMixin"
+    "PacketRegistryMixin",
+    "PartEngineMixin"
   ],
   "injectors": {
     "defaultRequire": 1
