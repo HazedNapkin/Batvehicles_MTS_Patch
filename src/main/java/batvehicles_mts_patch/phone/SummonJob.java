@@ -30,8 +30,10 @@ import minecrafttransportsimulator.systems.ConfigSystem;
  * real controls.  If no route exists, teleport next to the player.  If there's no room by the
  * player, drive as close as possible.  If stuck, re-plan once, then teleport.
  * <p>
- * Aircraft: teleport in above the buildings, fly over the player, switch to hover, and land
- * straight down in the nearest clear spot within {@link #LANDING_RADIUS} blocks, or hover there.
+ * Aircraft that can hover (see {@link VehiclePhone#canFlyIn}): teleport in above the buildings,
+ * fly over the player, switch to hover, and land straight down in the nearest clear spot within
+ * {@link #LANDING_RADIUS} blocks, or hover there.  Other aircraft are teleported straight onto
+ * the ground near the player.
  */
 final class SummonJob {
     private static final int DEFAULT_SUMMON_DISTANCE = 30;
@@ -221,7 +223,10 @@ final class SummonJob {
             releaseChunk();
             return true;
         }
-        if (needsFuel(vehicle.definition.motorized.isAircraft) && vehicle.fuelTank.getFluidLevel() == 0) {
+        boolean isAircraft = vehicle.definition.motorized.isAircraft;
+        boolean flyIn = isAircraft && VehiclePhone.canFlyIn(vehicle);
+        //Aircraft that can't fly in are just teleported, so they don't need fuel.
+        if ((!isAircraft || flyIn) && needsFuel(isAircraft) && vehicle.fuelTank.getFluidLevel() == 0) {
             message(player, name + " is out of fuel.");
             releaseChunk();
             return true;
@@ -229,13 +234,16 @@ final class SummonJob {
         shape = VehicleShape.of(vehicle);
         //Already loaded and within range: it makes its own way over, no teleporting.
         driveOnly = forcedChunk == null && !isFar(player);
-        if (vehicle.definition.motorized.isAircraft) {
+        if (flyIn) {
             if (isIndoors(player)) {
                 message(player, name + " can't reach you indoors.");
                 releaseChunk();
                 return true;
             }
             return startFlight(player);
+        }
+        if (isAircraft) {
+            return teleportAircraftToGround(player);
         }
         startGroundPlanning(player);
         return false;
@@ -310,8 +318,10 @@ final class SummonJob {
         Point3D best = null;
         double bestDistance = Double.MAX_VALUE;
         int range = (int) Math.ceil(max);
-        for (int dx = -range; dx <= range; ++dx) {
-            for (int dz = -range; dz <= range; ++dz) {
+        //Big aircraft search a wide area, so check fewer columns rather than lag the tick.
+        int step = Math.max(1, range / 16);
+        for (int dx = -range; dx <= range; dx += step) {
+            for (int dz = -range; dz <= range; dz += step) {
                 double distance = Math.hypot(dx, dz);
                 if (distance < min || distance > max || distance >= bestDistance) {
                     continue;
@@ -587,6 +597,24 @@ final class SummonJob {
     }
 
     //-----FLYING-----
+
+    /**
+     * For aircraft that can't hover in and land.  Puts it straight on the ground near the player,
+     * far enough out that none of it lands on them.
+     */
+    private boolean teleportAircraftToGround(IWrapperPlayer player) {
+        pathfinder = new GroundPathfinder(world, shape);
+        Point3D playerPosition = player.getPosition().copy();
+        double minDistance = Math.max(shape.halfWidth, shape.halfLength) + 1.5;
+        Point3D spot = findSpotNear(playerPosition, (int) Math.floor(playerPosition.y), minDistance, minDistance + FALLBACK_SPOT_MAX);
+        if (spot == null) {
+            message(player, "There's nowhere near you that " + name + " fits.");
+            releaseChunk();
+            return true;
+        }
+        teleportToGround(spot, yawTowards(spot, playerPosition), null, name + " has been brought to you.");
+        return false;
+    }
 
     private boolean startFlight(IWrapperPlayer player) {
         Point3D playerPosition = player.getPosition();

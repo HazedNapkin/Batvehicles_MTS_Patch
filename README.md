@@ -51,7 +51,11 @@ Craft the **Vehicle Phone** at an MTS bench (2 iron, 4 redstone, 1 glass pane, 1
 The route planner works on a block grid. It's sized to the vehicle's width and height, climbs at most 1 block, drops at most 2, avoids water and lava, and won't cut corners. It runs in slices over several ticks, so a summon can't lag the server.
 
 ### What an aircraft does
-Only aircraft with the `phone_summon_aircraft` definition constant can be registered. The Batwing has it.
+Any aircraft can be registered. Aircraft that can hover, like the Batwing, fly in as below. An aircraft can hover if it or one of its parts exposes both `hover` and `stay_on` as custom variables (`rendering.customVariables`) or custom keybinds, or if it has the `phone_summon_aircraft` definition constant. These are the default variable names; an aircraft can use its own (see below).
+
+Aircraft that can't hover are teleported straight onto the ground near you, facing you, with the parking brake on. They're placed far enough out that no part of them lands on you, and they don't need fuel. If there's nowhere near you that they fit, the call fails.
+
+For aircraft that can hover:
 1. You can't call it while you're indoors (any block over your head).
 2. It teleports in about `phone_summon_distance` blocks in front of you, 10 blocks above everything around you. If it's already loaded and within that range, it climbs and flies over from where it is instead.
 3. It starts its engines, switches on `stay_on` and flies to just above you, following you if you move. Then it switches to `hover`.
@@ -61,7 +65,8 @@ Only aircraft with the `phone_summon_aircraft` definition constant can be regist
 During the flight the mod moves the aircraft directly instead of using its flight physics. The movement still goes through MTS collisions, and the server and clients run the same movement.
 
 ### Vehicle JSON options
-- `"constants": ["phone_summon_aircraft"]` in a definition lets the phone call that aircraft.
+- `"constants": ["phone_summon_aircraft"]` in a definition makes the phone fly that aircraft in, even if it doesn't expose `hover` and `stay_on`.
+- `phone_hover_variable=<name>`, `phone_stay_on_variable=<name>` and `phone_gear_variable=<name>` constants tell the phone which variables to check and set instead of `hover`, `stay_on` and `gear_setpoint`. For example, `"constants": ["phone_hover_variable=vtol_mode"]`. A paint's (sub-definition's) constants take priority over the main definition's.
 - A `phone_summon_distance` variable modifier with `setValue` changes how far away the vehicle appears before driving or flying in.
 
 ## How it works
