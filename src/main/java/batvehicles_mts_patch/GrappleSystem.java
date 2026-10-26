@@ -170,6 +170,12 @@ public final class GrappleSystem {
         }
         if (state == STATE_IDLE) {
             launch(vehicle, part);
+            //Take the first step straight away.  Otherwise clients get a tick with the hook sitting on the
+            //launcher, and a zero-length cable has no direction, so it can point anywhere.
+            Hook launched = hooks.get(part);
+            if (launched != null) {
+                fly(vehicle, part, launched, fireVar);
+            }
             return;
         }
         if (state != STATE_BLOCK && hook == null) {
@@ -425,23 +431,25 @@ public final class GrappleSystem {
         double pull = Math.min((distance - rope) * STIFFNESS, MAX_PULL) * share;
         vehicle.motion.addScaled(lineNormal, pull / vehicle.speedFactor);
 
-        //Steer the heading along the swing.  Without this, tyre grip snaps our motion back to
-        //the heading next tick and the line can't swing us round a corner.
+        //Steer the heading along our direction of travel while the line swings us.  Without this, tyre
+        //grip snaps our motion back to the heading next tick and the line can't swing us round a corner.
+        //Scale it by how much of the travel is sideways to the line, so reeling straight in doesn't turn
+        //us.  Steering to the sideways part alone turned any drift into a full turn side-on to the line.
         Point3D groundMotion = new Point3D(vehicle.motion.x, 0, vehicle.motion.z);
         Point3D groundNormal = new Point3D(lineNormal.x, 0, lineNormal.z);
-        if (groundMotion.length() > 0.05 && groundNormal.length() > 1.0E-3) {
+        double groundSpeed = groundMotion.length();
+        if (groundSpeed > 0.05 && groundNormal.length() > 1.0E-3) {
             groundNormal.normalize();
-            Point3D swingDirection = groundMotion.addScaled(groundNormal, -groundMotion.dotProduct(groundNormal, false));
-            if (swingDirection.length() > 0.01) {
-                swingDirection.normalize();
-                if (vehicle.goingInReverse) {
-                    swingDirection.invert();
-                }
-                Point3D heading = new Point3D(vehicle.headingVector.x, 0, vehicle.headingVector.z).normalize();
-                double headingError = Math.toDegrees(Math.atan2(heading.crossProduct(swingDirection).y, heading.dotProduct(swingDirection, true)));
-                double yawAdded = Math.max(-MAX_YAW_ASSIST, Math.min(MAX_YAW_ASSIST, headingError * YAW_ASSIST * share));
-                vehicle.rotation.angles.y += yawAdded;
+            double sidewaysFraction = Math.sqrt(Math.max(0, 1 - Math.pow(groundMotion.dotProduct(groundNormal, false) / groundSpeed, 2)));
+            Point3D travelDirection = groundMotion.scale(1D / groundSpeed);
+            Point3D heading = new Point3D(vehicle.headingVector.x, 0, vehicle.headingVector.z).normalize();
+            if (heading.dotProduct(travelDirection, true) < 0) {
+                //Travelling backwards, so line the tail up with the travel instead of the nose.
+                travelDirection.invert();
             }
+            double headingError = Math.toDegrees(Math.atan2(heading.crossProduct(travelDirection).y, heading.dotProduct(travelDirection, true)));
+            double yawAdded = Math.max(-MAX_YAW_ASSIST, Math.min(MAX_YAW_ASSIST, headingError * YAW_ASSIST * share * sidewaysFraction));
+            vehicle.rotation.angles.y += yawAdded;
         }
 
         applyLineTilt(vehicle, part, lineNormal, (vehicle.motion.y - motionYBefore) * vehicle.speedFactor);
@@ -584,8 +592,11 @@ public final class GrappleSystem {
     private static void updateRenderAnchor(APart part) {
         Point3D[] anchors = renderAnchors.get(part);
         Point3D anchor = getAnchor(part);
-        if (anchors == null || !part.getOrCreateVariable(VAR_LINE_OUT).isActive) {
-            //No line out, so there's nothing to interpolate from.  Start fresh at the next launch.
+        if (!part.getOrCreateVariable(VAR_LINE_OUT).isActive) {
+            //No line out.  Forget the last hook position, so the next launch doesn't sweep in from it.
+            renderAnchors.remove(part);
+        } else if (anchors == null) {
+            //Line just went out.  Start the interpolation at the hook's first position.
             renderAnchors.put(part, new Point3D[] {anchor, anchor.copy()});
         } else {
             anchors[0].set(anchors[1]);
