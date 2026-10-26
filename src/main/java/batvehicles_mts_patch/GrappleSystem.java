@@ -1,6 +1,8 @@
 package batvehicles_mts_patch;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -23,33 +25,31 @@ import minecrafttransportsimulator.mcinterface.IWrapperEntity;
 
 /**
  * Grappling-hook winch for MTS vehicles.
- * <p>
  * Any part whose generic type is {@link #PART_TYPE} acts as a grapple launcher.  Firing launches
  * the hook as a projectile towards whatever is under the driver's crosshair (or along the
  * launcher's +Z axis with no driver).  It flies up to {@link #RANGE} blocks and sticks into the
  * first block, mob or vehicle it hits.  Blocks hold the car, mobs get reeled in, and vehicles
  * share the pull by mass.
- * <p>
  * State the pack and clients need lives in MTS variables on the part, so MTS handles client sync
  * for us and pack JSON drives it with normal keybinds and animations:
- * <ul>
- * <li>{@link #VAR_FIRE}: toggle.  1 fires the hook, 0 releases it.  Set back to 0 by the server on a miss.</li>
- * <li>{@link #VAR_REEL}: button.  While held, the winch pulls the line in.</li>
- * <li>{@link #VAR_SLACK}: button.  While held, the winch lets the line out.</li>
- * <li>{@link #VAR_STATE}: read-only.  One of the STATE_ constants.</li>
- * <li>{@link #VAR_LINE_OUT}: read-only.  1 while the hook is flying or stuck in something.</li>
- * <li>{@link #VAR_ATTACHED}: read-only.  1 while the hook is stuck in something.</li>
- * <li>{@link #VAR_BODY_YAW}, {@link #VAR_BODY_PITCH}: read-only, for rendering.  Turn the whole
+ * -{@link #VAR_FIRE}: toggle.  1 fires the hook, 0 releases it.  Set back to 0 by the server on a miss.
+ * -{@link #VAR_REEL}: button.  While held, the winch pulls the line in.
+ * -{@link #VAR_SLACK}: button.  While held, the winch lets the line out.
+ * -{@link #VAR_STATE}: read-only.  One of the STATE_ constants.
+ * -{@link #VAR_LINE_OUT}: read-only.  1 while the hook is flying or stuck in something.
+ * -{@link #VAR_ATTACHED}: read-only.  1 while the hook is stuck in something.
+ * -{@link #VAR_BODY_YAW}, {@link #VAR_BODY_PITCH}: read-only, for rendering.  Turn the whole
  * launcher about {@link #PIVOT}: at the hook while the line is out, otherwise where the driver looks.
- * Always zero for fixed launchers.</li>
- * <li>{@link #VAR_LINE_YAW}, {@link #VAR_LINE_PITCH}, {@link #VAR_LENGTH}: read-only, for rendering.
- * Turn the cable and hook about the barrel tip, relative to the body, and the cable length from the tip to the hook.</li>
- * </ul>
+ * Always zero for fixed launchers.
+ * -{@link #VAR_LINE_YAW}, {@link #VAR_LINE_PITCH}, {@link #VAR_LENGTH}: read-only, for rendering.
+ * Turn the cable and hook about the barrel tip, relative to the body, and the cable length from the tip to the hook.
+ * 
  * Definition constants pick the variant: {@link #CONSTANT_FIXED} and {@link #CONSTANT_ENTITIES_ONLY}.
  * The line only ever pulls.  When it's taut, whatever is on each end can't move further apart,
  * gets pulled back to the line length, and the car's heading is steered along any swing so the
  * tyres don't fight the turn.  When the line lifts the car, it pitches up on its far wheels, or
- * hangs nose-first below the hook once clear of the ground.
+ * hangs nose-first below the hook once clear of the ground.  At the top of a wall, the mantle
+ * takes over and hauls the car up and over onto the top.
  */
 public final class GrappleSystem {
     public static final String PART_TYPE = "generic_grapple";
@@ -70,6 +70,12 @@ public final class GrappleSystem {
     public static final String VAR_BODY_PITCH = "grapple_body_pitch";
     public static final String VAR_LINE_YAW = "grapple_line_yaw";
     public static final String VAR_LINE_PITCH = "grapple_line_pitch";
+    /**Read-only.  One of the MANTLE_ constants, for the car being hauled over the top of a wall.**/
+    public static final String VAR_MANTLE = "grapple_mantle";
+    private static final String VAR_MANTLE_LIP = "grapple_mantle_lip";
+    private static final String VAR_MANTLE_EDGE_X = "grapple_mantle_edge_x";
+    private static final String VAR_MANTLE_EDGE_Z = "grapple_mantle_edge_z";
+    private static final String VAR_MANTLE_YAW = "grapple_mantle_yaw";
 
     /**Definition constant: the launcher body doesn't turn to follow the crosshair.  It still fires where the driver aims.**/
     public static final String CONSTANT_FIXED = "grapple_fixed";
@@ -82,6 +88,14 @@ public final class GrappleSystem {
     public static final int STATE_MOB = 3;
     public static final int STATE_VEHICLE = 4;
 
+    public static final int MANTLE_NONE = 0;
+    /**Hanging at the lip for {@link #MANTLE_PAUSE_TICKS}.**/
+    public static final int MANTLE_PAUSE = 1;
+    /**Lifting straight up while tilting towards the hook, until the launcher-end wheels clear the top.**/
+    public static final int MANTLE_LIFT = 2;
+    /**Moving towards the hook while tilting down to level, until the far wheels are over the top.**/
+    public static final int MANTLE_ROLL = 3;
+
     /**Point the launcher turns about: the bottom back edge of the model, in part coordinates.
      * Must match the animation centerPoint in the part JSON.**/
     private static final Point3D PIVOT = new Point3D(0, -2D / 16D, -8D / 16D);
@@ -89,8 +103,9 @@ public final class GrappleSystem {
     private static final double RANGE = 100;
     /**Hook flight speed, in blocks per tick (100 blocks in 1.25 seconds).**/
     private static final double HOOK_SPEED = 4;
-    /**Shortest the winch can reel the line, in blocks.**/
-    private static final double MIN_ROPE = 2;
+    /**Shortest the winch can reel the line, in blocks.  Short enough to keep pulling the car over a
+     * lip when the hook is just past the edge.  Any longer and the line goes slack at the top.**/
+    private static final double MIN_ROPE = 0.5;
     /**Winch speed, in blocks per tick (5 blocks/second).**/
     private static final double REEL_SPEED = 0.25;
     /**Fraction of any over-stretch pulled back each tick.  Higher is a stiffer line.**/
@@ -101,12 +116,32 @@ public final class GrappleSystem {
     private static final double YAW_ASSIST = 0.35;
     /**Cap on the yaw added by the line, in degrees per tick.**/
     private static final double MAX_YAW_ASSIST = 6;
+    /**Yaw assist is off when the car's heading or the line, flattened onto the ground, is shorter
+     * than this (about 60 degrees from level), and fades in up to level.**/
+    private static final double MIN_YAW_FLATNESS = 0.5;
     /**Cap on the pitch added by the line, in degrees per tick.**/
     private static final double MAX_TILT_RATE = 4;
     /**Fraction of the hanging angle error corrected each tick while the car hangs free of the ground.**/
     private static final double HANG_ASSIST = 0.15;
     /**How often the server checks the anchor block still exists, in ticks.**/
     private static final int ANCHOR_CHECK_INTERVAL = 10;
+
+    /**How long the car hangs at the lip before the mantle can start, in ticks.**/
+    private static final int MANTLE_PAUSE_TICKS = 10;
+    /**How fast the mantle lifts and rolls the car, in blocks per tick.**/
+    private static final double MANTLE_SPEED = 1D / 16D;
+    /**Pitch the car is tilted to, in degrees from level, by the time its launcher-end wheels reach the top.**/
+    private static final double MANTLE_ROLL_PITCH = 45;
+    /**How far above the top the launcher-end wheels are carried, in blocks, so they don't catch the lip.**/
+    private static final double MANTLE_CLEARANCE = 1D / 16D;
+    /**The car counts as climbing a wall when its launcher end points further up than this (sine of about 37 degrees).**/
+    private static final double MANTLE_CLIMB_STEEPNESS = 0.6;
+    /**The line has stopped lifting the car once it points up less than this (sine of 30 degrees).**/
+    private static final double MANTLE_FLAT_LINE = 0.5;
+    /**How many 1/16 block steps ahead of the wheels we look for the wall face.  48 is 3 blocks.**/
+    private static final int MANTLE_FACE_SEARCH = 48;
+    /**How many blocks above the wheels we look for the top of the wall.**/
+    private static final int MANTLE_LIP_SEARCH = 4;
 
     /**Server-only hook state that can't live in a variable: flight and what we're stuck in.**/
     private static final Map<APart, Hook> hooks = new WeakHashMap<>();
@@ -117,6 +152,10 @@ public final class GrappleSystem {
     /**Vehicles whose pitch the line is holding this tick.  MTS's own pitch correction is skipped for
      * these, as it would drop the lifted end straight back onto its wheels.**/
     private static final Set<EntityVehicleF_Physics> pitchHeldVehicles = Collections.newSetFromMap(new WeakHashMap<>());
+    /**Push out of a wall to apply to each stuck vehicle this tick, in blocks.**/
+    private static final Map<EntityVehicleF_Physics, Point3D> pushOuts = new WeakHashMap<>();
+    /**Server-only count of ticks each launcher has paused at a lip.**/
+    private static final Map<APart, Integer> mantlePauseTicks = new WeakHashMap<>();
 
     private GrappleSystem() {
     }
@@ -130,11 +169,32 @@ public final class GrappleSystem {
      */
     public static void updateVehicle(EntityVehicleF_Physics vehicle) {
         pitchHeldVehicles.remove(vehicle);
+        pushOuts.remove(vehicle);
+        boolean attached = false;
         for (APart part : vehicle.allParts) {
             if (part.isValid && isGrapple(part)) {
                 updateGrapple(vehicle, part);
+                attached |= getState(part) >= STATE_BLOCK;
             }
         }
+
+        //If the line has dragged the car into a wall, step it back out.  Only while attached, so we
+        //don't change how MTS handles collisions the rest of the time.
+        if (attached && vehicle.towedByConnection == null) {
+            Point3D pushOut = LineCollision.findPushOut(vehicle, LineCollision.getAllBoxes(vehicle));
+            if (pushOut != null) {
+                pushOuts.put(vehicle, pushOut);
+            }
+        }
+    }
+
+    /**
+     * Returns the push out of a wall to apply to this vehicle this tick, if any, and clears it.
+     * MTS cancels any move made by a box already inside a block, so this is added to the position
+     * after MTS's collision checks rather than to the motion.
+     */
+    public static Point3D takePushOut(EntityVehicleF_Physics vehicle) {
+        return pushOuts.remove(vehicle);
     }
 
     private static void updateGrapple(EntityVehicleF_Physics vehicle, APart part) {
@@ -152,7 +212,11 @@ public final class GrappleSystem {
         if (getState(part) >= STATE_BLOCK && vehicle.towedByConnection == null) {
             double selfShare = part.getOrCreateVariable(VAR_SELF_SHARE).currentValue;
             if (selfShare > 0) {
-                applyLineForces(vehicle, part, getAnchor(part), part.getOrCreateVariable(VAR_ROPE).currentValue, selfShare);
+                if (getMantle(part) != MANTLE_NONE) {
+                    updateMantle(vehicle, part);
+                } else {
+                    applyLineForces(vehicle, part, getAnchor(part), part.getOrCreateVariable(VAR_ROPE).currentValue, selfShare);
+                }
             }
         }
     }
@@ -227,6 +291,11 @@ public final class GrappleSystem {
             rope -= REEL_SPEED;
         } else if (part.getOrCreateVariable(VAR_SLACK).isActive) {
             rope += REEL_SPEED;
+        }
+        if (getMantle(part) != MANTLE_NONE) {
+            //The mantle carries the car, not the line.  Keep the line just taut, so it doesn't yank
+            //the car when the mantle hands back to it.
+            rope = part.position.distanceTo(anchor);
         }
         rope = Math.max(MIN_ROPE, Math.min(RANGE, rope));
         ropeVar.setTo(rope, true);
@@ -329,6 +398,7 @@ public final class GrappleSystem {
     private static void release(APart part, ComputedVariable fireVar) {
         hooks.remove(part);
         fireVar.setTo(0, true);
+        setMantle(part, MANTLE_NONE);
         setState(part, STATE_IDLE);
     }
 
@@ -435,14 +505,20 @@ public final class GrappleSystem {
         //grip snaps our motion back to the heading next tick and the line can't swing us round a corner.
         //Scale it by how much of the travel is sideways to the line, so reeling straight in doesn't turn
         //us.  Steering to the sideways part alone turned any drift into a full turn side-on to the line.
+        //Fade it out as the car or the line nears vertical, such as climbing a wall.  The flattened
+        //heading and line are then too short to have a reliable direction, and the car's yaw axis lies
+        //nearly flat, so a "yaw" would flip the car over rather than turn it.
         Point3D groundMotion = new Point3D(vehicle.motion.x, 0, vehicle.motion.z);
         Point3D groundNormal = new Point3D(lineNormal.x, 0, lineNormal.z);
+        Point3D heading = new Point3D(vehicle.headingVector.x, 0, vehicle.headingVector.z);
         double groundSpeed = groundMotion.length();
-        if (groundSpeed > 0.05 && groundNormal.length() > 1.0E-3) {
+        double headingFlatness = heading.length();
+        if (groundSpeed > 0.05 && groundNormal.length() > MIN_YAW_FLATNESS && headingFlatness > MIN_YAW_FLATNESS) {
             groundNormal.normalize();
+            heading.normalize();
             double sidewaysFraction = Math.sqrt(Math.max(0, 1 - Math.pow(groundMotion.dotProduct(groundNormal, false) / groundSpeed, 2)));
+            sidewaysFraction *= (headingFlatness - MIN_YAW_FLATNESS) / (1 - MIN_YAW_FLATNESS);
             Point3D travelDirection = groundMotion.scale(1D / groundSpeed);
-            Point3D heading = new Point3D(vehicle.headingVector.x, 0, vehicle.headingVector.z).normalize();
             if (heading.dotProduct(travelDirection, true) < 0) {
                 //Travelling backwards, so line the tail up with the travel instead of the nose.
                 travelDirection.invert();
@@ -452,27 +528,37 @@ public final class GrappleSystem {
             vehicle.rotation.angles.y += yawAdded;
         }
 
-        applyLineTilt(vehicle, part, lineNormal, (vehicle.motion.y - motionYBefore) * vehicle.speedFactor);
+        List<BoundingBox> freeBoxes = LineCollision.getFreeBoxes(vehicle, LineCollision.getAllBoxes(vehicle));
+        applyLineTilt(vehicle, part, lineNormal, (vehicle.motion.y - motionYBefore) * vehicle.speedFactor, freeBoxes);
+
+        //MTS doesn't stop wheels going into walls, and the line usually pulls the car towards one.
+        Point3D blocked = LineCollision.clampToWalls(vehicle, freeBoxes);
+
+        //A straight line to a hook on top of a wall stops lifting once the launcher is level with the
+        //hook, which leaves the wheels below the lip.  When that happens, the server hands over to the
+        //mantle to haul the car over the top.  These checks are cheap, so the block search in
+        //tryStartMantle only runs while the car is actually stuck against a wall.
+        Point3D towardsHook = new Point3D(lineNormal.x, 0, lineNormal.z);
+        if (!vehicle.world.isClient() && lineNormal.y < MANTLE_FLAT_LINE && towardsHook.length() > 1.0E-3 && blocked.dotProduct(towardsHook.normalize(), false) > 0) {
+            tryStartMantle(vehicle, part, towardsHook);
+        }
     }
 
     /**
      * Pitches the car when the line lifts one end of it.  The line pulls on the launcher while
      * gravity pulls on the middle of the car, so the launcher end rises first.
-     * <ul>
-     * <li>With wheels grounded on the far side of the car, the car tips up about them.  The lift the
-     * line just added is spent on the tilt instead of raising the whole car level.</li>
-     * <li>Hanging free, the car swings until its middle hangs straight below the launcher.</li>
-     * </ul>
+     * -With wheels grounded on the far side of the car, the car tips up about them.  The lift the
+     * line just added is spent on the tilt instead of raising the whole car level.
+     * -Hanging free, the car swings until its middle hangs straight below the launcher.
+     * -With only the launcher end grounded, such as the front wheels just over the top of a wall,
+     * the car pitches about those wheels until it points along the line, which lays it flat on the top.
+     * 
      * Either way the car never tilts past where it would hang from the line, so it can't flip over.
      *
      * @param lift how far the line raised the car this tick, in blocks.
+     * @param freeBoxes the car's boxes that aren't already inside a block, to check the tilt against.
      */
-    private static void applyLineTilt(EntityVehicleF_Physics vehicle, APart part, Point3D lineNormal, double lift) {
-        if (lineNormal.y <= 0) {
-            //Line runs level or downhill, so it can't lift either end.  Leave pitch to MTS.
-            return;
-        }
-
+    private static void applyLineTilt(EntityVehicleF_Physics vehicle, APart part, Point3D lineNormal, double lift, List<BoundingBox> freeBoxes) {
         //Work in the car's own frame, where pitch is a turn about X, so only Y and Z matter.
         //MTS has no centre of mass, so take the middle of the wheels.  Without wheels, use the origin.
         Point3D launcher = toLocal(vehicle, part.position);
@@ -494,50 +580,204 @@ public final class GrappleSystem {
         }
 
         //Tilt that would hang the car's middle straight below the launcher.  Positive is nose down.
-        double hangError = getTiltAngle(arm) - getTiltAngle(lineNormal.copy().reOrigin(vehicle.orientation));
+        Point3D lineLocal = lineNormal.copy().reOrigin(vehicle.orientation);
+        double hangError = getTiltAngle(arm) - getTiltAngle(lineLocal);
         hangError = ((hangError % 360) + 540) % 360 - 180;
 
-        //Pivot on the grounded wheels at the other end of the car from the launcher.
+        //Sort the grounded wheels into the launcher end and the far end of the car.
         Point3D pivot = new Point3D();
         int pivotWheels = 0;
+        Point3D launcherEnd = new Point3D();
+        int launcherEndWheels = 0;
         for (PartGroundDevice groundDevice : vehicle.groundDeviceCollective.groundedGroundDevices) {
             Point3D wheel = toLocal(vehicle, groundDevice.position);
             if ((wheel.z - center.z) * arm.z < 0) {
                 pivot.add(wheel);
                 ++pivotWheels;
+            } else {
+                launcherEnd.add(wheel);
+                ++launcherEndWheels;
             }
         }
 
         double tilt;
-        if (pivotWheels > 0) {
+        //How far the launcher rises in the world for each degree of tilt.  Only used when pivoting on the far wheels.
+        double risePerDegree = 0;
+        if (pivotWheels == 0 && launcherEndWheels > 0) {
+            //The launcher end is up on something, like the top of a wall, and the far end hangs free.
+            //Pitch about the launcher-end wheels until the car points along the line, so the line drags
+            //it over the edge and down flat onto the top, instead of leaving it hanging off the edge.
+            //This runs whichever way the line points, as at the top it usually runs level or downhill.
+            pivot.set(launcherEnd.scale(1D / launcherEndWheels));
+            double overError = getTiltAngle(new Point3D(0, 0, Math.signum(arm.z))) - getTiltAngle(lineLocal);
+            overError = ((overError % 360) + 540) % 360 - 180;
+            tilt = Math.max(-MAX_TILT_RATE, Math.min(MAX_TILT_RATE, overError * HANG_ASSIST));
+        } else if (lineNormal.y <= 0) {
+            //Line runs level or downhill, so it can't lift either end.  Leave pitch to MTS.
+            return;
+        } else if (pivotWheels > 0) {
             pivot.scale(1D / pivotWheels);
-            //How far the launcher rises in the world for each degree of tilt about the pivot.
             Point3D pivotArm = launcher.copy().subtract(pivot);
-            double risePerDegree = new Point3D(0, -pivotArm.z, pivotArm.y).rotate(vehicle.orientation).y * Math.PI / 180D;
+            risePerDegree = new Point3D(0, -pivotArm.z, pivotArm.y).rotate(vehicle.orientation).y * Math.PI / 180D;
             tilt = Math.abs(risePerDegree) > 1.0E-3 ? lift / risePerDegree : 0;
             if (tilt * hangError <= 0) {
                 //The line isn't lifting, or we're already hanging from it.  Hold the angle we're at.
                 tilt = 0;
             } else {
                 tilt = Math.signum(tilt) * Math.min(Math.abs(tilt), Math.min(Math.abs(hangError), MAX_TILT_RATE));
-                vehicle.motion.y -= tilt * risePerDegree / vehicle.speedFactor;
             }
-        } else if (vehicle.groundDeviceCollective.groundedGroundDevices.isEmpty()) {
+        } else {
             //Hanging free.  Swing about the launcher so the line holds it still.
             pivot.set(launcher);
             tilt = Math.max(-MAX_TILT_RATE, Math.min(MAX_TILT_RATE, hangError * HANG_ASSIST));
-        } else {
-            //Only the launcher end is grounded.  The line is dragging that end, so leave pitch to MTS.
-            return;
         }
 
+        //MTS only checks a turn against the collision boxes, so a tilt could swing the wheels into a wall.
+        tilt = LineCollision.limitTilt(vehicle, freeBoxes, pivot, tilt);
         if (tilt != 0) {
+            //The tilt raises the launcher, so don't also lift the whole car by that much.
+            vehicle.motion.y -= tilt * risePerDegree / vehicle.speedFactor;
             vehicle.rotation.angles.x += tilt;
             //MTS turns the car about its origin, so shift the origin to keep the pivot where it is.
             Point3D pivotShift = pivot.copy().subtract(pivot.copy().rotate(new RotationMatrix().setToAxisAngle(1, 0, 0, tilt)));
             vehicle.motion.addScaled(pivotShift.rotate(vehicle.orientation), 1D / vehicle.speedFactor);
         }
         pitchHeldVehicles.add(vehicle);
+    }
+
+    /**
+     * Starts the mantle if the car is climbing a wall and the top of the wall is in reach.  Server only.
+     * Looks for the wall face ahead of the lowest launcher-end wheel, then for the first air block
+     * above the face, which is the top of the wall.
+     */
+    private static void tryStartMantle(EntityVehicleF_Physics vehicle, APart part, Point3D towardsHook) {
+        WheelSplit wheels = new WheelSplit(vehicle, part);
+        if (wheels.launcherEnd.isEmpty() || wheels.farEnd.isEmpty() || vehicle.headingVector.y * wheels.side < MANTLE_CLIMB_STEEPNESS) {
+            return;
+        }
+
+        Point3D face = wheels.getLowestLauncherEnd().position.copy();
+        Point3D step = towardsHook.copy().scale(1D / 16D);
+        boolean foundFace = false;
+        for (int i = 0; i < MANTLE_FACE_SEARCH && !foundFace; ++i) {
+            face.add(step);
+            foundFace = !vehicle.world.isAir(face);
+        }
+        if (!foundFace) {
+            return;
+        }
+
+        Point3D column = new Point3D(Math.floor(face.x) + 0.5, Math.floor(face.y) + 0.5, Math.floor(face.z) + 0.5);
+        for (int i = 0; i < MANTLE_LIP_SEARCH; ++i) {
+            column.y += 1;
+            if (vehicle.world.isAir(column)) {
+                //Set the path before the phase, so clients have it by the time they start following it.
+                part.getOrCreateVariable(VAR_MANTLE_LIP).setTo(Math.floor(column.y), true);
+                part.getOrCreateVariable(VAR_MANTLE_EDGE_X).setTo(face.x, true);
+                part.getOrCreateVariable(VAR_MANTLE_EDGE_Z).setTo(face.z, true);
+                part.getOrCreateVariable(VAR_MANTLE_YAW).setTo(Math.toDegrees(Math.atan2(towardsHook.x, towardsHook.z)), true);
+                mantlePauseTicks.remove(part);
+                setMantle(part, MANTLE_PAUSE);
+                return;
+            }
+        }
+    }
+
+    /**
+     * Hauls the car over the top of a wall.  Runs on both client and server.  The mantle moves the
+     * car itself along a set path, so it looks the same every time and costs next to nothing a tick:
+     * -Pause: hang at the lip for {@link #MANTLE_PAUSE_TICKS}.
+     * -Lift: rise straight up while tilting towards the hook, pivoting on the launcher-end wheels,
+     * until they clear the top.  The tilt is spread over the height left, so the car reaches
+     * {@link #MANTLE_ROLL_PITCH} just as the wheels clear the lip.
+     * -Roll: move towards the hook with the launcher-end wheels skimming the top, tilting down to
+     * level over the distance left, so the far wheels come up over the lip as the car levels out.
+     * 
+     * Lift and roll only move while reel is held.  Letting go holds the car where it is, and slack
+     * drops out of the mantle and back to the line. Only the server changes phase; clients follow.
+     */
+    private static void updateMantle(EntityVehicleF_Physics vehicle, APart part) {
+        boolean server = !vehicle.world.isClient();
+        //Nothing else moves the car during the mantle, so cancel gravity, tyres and steering.
+        vehicle.motion.set(0, 0, 0);
+        vehicle.rotation.angles.set(0, 0, 0);
+        pitchHeldVehicles.add(vehicle);
+
+        if (part.getOrCreateVariable(VAR_SLACK).isActive) {
+            if (server) {
+                setMantle(part, MANTLE_NONE);
+            }
+            return;
+        }
+        int phase = getMantle(part);
+        if (phase == MANTLE_PAUSE) {
+            if (server && mantlePauseTicks.merge(part, 1, Integer::sum) >= MANTLE_PAUSE_TICKS) {
+                mantlePauseTicks.remove(part);
+                setMantle(part, MANTLE_LIFT);
+            }
+            return;
+        }
+        if (!part.getOrCreateVariable(VAR_REEL).isActive) {
+            return;
+        }
+
+        WheelSplit wheels = new WheelSplit(vehicle, part);
+        if (wheels.launcherEnd.isEmpty() || wheels.farEnd.isEmpty()) {
+            if (server) {
+                setMantle(part, MANTLE_NONE);
+            }
+            return;
+        }
+        double lip = part.getOrCreateVariable(VAR_MANTLE_LIP).currentValue;
+        double wheelBottom = wheels.getLauncherEndBottom();
+        //How far the launcher end points up from level, in degrees.
+        double pitchUp = Math.toDegrees(Math.asin(Math.max(-1, Math.min(1, vehicle.headingVector.y * wheels.side))));
+
+        Point3D move = new Point3D();
+        double tilt;
+        if (phase == MANTLE_LIFT) {
+            double remaining = lip + MANTLE_CLEARANCE - wheelBottom;
+            if (remaining <= 0) {
+                if (server) {
+                    setMantle(part, MANTLE_ROLL);
+                }
+                return;
+            }
+            double rise = Math.min(MANTLE_SPEED, remaining);
+            move.y = rise;
+            tilt = Math.max(0, pitchUp - MANTLE_ROLL_PITCH) * rise / remaining;
+        } else {
+            double yaw = Math.toRadians(part.getOrCreateVariable(VAR_MANTLE_YAW).currentValue);
+            Point3D direction = new Point3D(Math.sin(yaw), 0, Math.cos(yaw));
+            Point3D edge = new Point3D(part.getOrCreateVariable(VAR_MANTLE_EDGE_X).currentValue, 0, part.getOrCreateVariable(VAR_MANTLE_EDGE_Z).currentValue);
+            //Distance left until every far wheel is a radius past the wall face, so over the top.
+            double remaining = -Double.MAX_VALUE;
+            for (APart wheel : wheels.farEnd) {
+                Point3D flatWheel = new Point3D(wheel.position.x, 0, wheel.position.z);
+                remaining = Math.max(remaining, edge.copy().subtract(flatWheel).dotProduct(direction, false) + wheel.getHeight() / 2D);
+            }
+            if (remaining <= 0) {
+                //Over the top.  MTS sets the car down and the line takes over again.
+                if (server) {
+                    setMantle(part, MANTLE_NONE);
+                }
+                return;
+            }
+            double travel = Math.min(MANTLE_SPEED, remaining);
+            move.set(direction).scale(travel);
+            move.y = Math.max(-MANTLE_SPEED, Math.min(MANTLE_SPEED, lip + MANTLE_CLEARANCE - wheelBottom));
+            tilt = Math.max(0, pitchUp) * travel / remaining;
+        }
+        //Cap the rate so a short distance left can't snap the car round.  Positive tilt is nose down,
+        //so flip it when the launcher is at the back.
+        tilt = Math.min(tilt, MAX_TILT_RATE) * wheels.side;
+
+        //Pivot on the launcher-end wheels, so they follow the path above and the far end swings round them.
+        Point3D pivot = wheels.getLauncherEndCenter();
+        vehicle.rotation.angles.x = tilt;
+        Point3D pivotShift = pivot.copy().subtract(pivot.copy().rotate(new RotationMatrix().setToAxisAngle(1, 0, 0, tilt)));
+        move.add(pivotShift.rotate(vehicle.orientation));
+        vehicle.motion.set(move).scale(1D / vehicle.speedFactor);
     }
 
     /**
@@ -562,6 +802,14 @@ public final class GrappleSystem {
 
     private static boolean isEntitiesOnly(APart part) {
         return part.getOrCreateVariable(CONSTANT_ENTITIES_ONLY).isActive;
+    }
+
+    private static int getMantle(APart part) {
+        return (int) part.getOrCreateVariable(VAR_MANTLE).currentValue;
+    }
+
+    private static void setMantle(APart part, int phase) {
+        part.getOrCreateVariable(VAR_MANTLE).setTo(phase, true);
     }
 
     private static int getState(APart part) {
@@ -687,6 +935,59 @@ public final class GrappleSystem {
         ComputedVariable variable = part.getOrCreateVariable(name);
         if (renderVariables.add(variable)) {
             variable.setFunctionTo(new ComputedVariable(part, name, function, true));
+        }
+    }
+
+    /**The car's wheels, split into the launcher end and the far end of the car.  Spares don't count.**/
+    private static class WheelSplit {
+        final EntityVehicleF_Physics vehicle;
+        final List<APart> launcherEnd = new ArrayList<>();
+        final List<APart> farEnd = new ArrayList<>();
+        /**1 if the launcher is ahead of the middle of the wheels, -1 if behind.**/
+        final double side;
+
+        WheelSplit(EntityVehicleF_Physics vehicle, APart launcher) {
+            this.vehicle = vehicle;
+            List<APart> wheels = new ArrayList<>();
+            double centerZ = 0;
+            for (APart other : vehicle.allParts) {
+                if (other instanceof PartGroundDevice && !other.placementDefinition.isSpare) {
+                    wheels.add(other);
+                    centerZ += toLocal(vehicle, other.position).z;
+                }
+            }
+            if (!wheels.isEmpty()) {
+                centerZ /= wheels.size();
+            }
+            side = toLocal(vehicle, launcher.position).z >= centerZ ? 1 : -1;
+            for (APart wheel : wheels) {
+                ((toLocal(vehicle, wheel.position).z - centerZ) * side > 0 ? launcherEnd : farEnd).add(wheel);
+            }
+        }
+
+        APart getLowestLauncherEnd() {
+            APart lowest = launcherEnd.get(0);
+            for (APart wheel : launcherEnd) {
+                if (wheel.position.y - wheel.getHeight() / 2D < lowest.position.y - lowest.getHeight() / 2D) {
+                    lowest = wheel;
+                }
+            }
+            return lowest;
+        }
+
+        /**World height of the bottom of the lowest launcher-end wheel.**/
+        double getLauncherEndBottom() {
+            APart lowest = getLowestLauncherEnd();
+            return lowest.position.y - lowest.getHeight() / 2D;
+        }
+
+        /**Middle of the launcher-end wheels, in the car's frame.**/
+        Point3D getLauncherEndCenter() {
+            Point3D center = new Point3D();
+            for (APart wheel : launcherEnd) {
+                center.add(toLocal(vehicle, wheel.position));
+            }
+            return center.scale(1D / launcherEnd.size());
         }
     }
 
